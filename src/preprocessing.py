@@ -183,22 +183,44 @@ def remove_duplicate_images(duplicates, dry_run=False):
 # =========================================================================
 # ฟีเจอร์ 4: จัดการ Class Imbalance
 # =========================================================================
-def check_class_distribution(input_dir):
+def find_class_folders(input_dir):
     """
-    นับจำนวนรูปในแต่ละ class (แต่ละ subfolder ของ input_dir)
-    ใช้ดูก่อนว่า class ไหนมีรูปน้อย/มากผิดปกติ (Class Imbalance)
+    หาโฟลเดอร์ที่เป็น "class จริง" แบบ recursive (เหมือนวิธีที่ eda.py ใช้)
 
-    คืนค่า dict {class_name: จำนวนไฟล์}
+    นิยาม class = โฟลเดอร์ leaf ที่มีไฟล์ภาพอยู่ข้างในโดยตรง
+    (ไม่ใช่แค่ subfolder ชั้นแรกของ input_dir อย่างเดียว) เพราะ dataset นี้
+    มีโฟลเดอร์ wrapper ซ้อนอยู่อีกชั้นก่อนถึงโฟลเดอร์ breed จริง
+    เช่น data/cleaned/cat-breeds/persian/*.jpg
+                      ^^^^^^^^^^ wrapper   ^^^^^^^ class จริง
+
+    คืนค่า dict {class_name: folder_path}
     """
     if not os.path.isdir(input_dir):
         raise FileNotFoundError(f"ไม่พบโฟลเดอร์: {input_dir}")
 
+    class_dirs = {}
+    for root, _, files in os.walk(input_dir):
+        image_files = [f for f in files if f.lower().endswith(VALID_EXT)]
+        if image_files:
+            class_name = os.path.basename(root)
+            if class_name in class_dirs and class_dirs[class_name] != root:
+                print(f"[WARNING] พบชื่อ class '{class_name}' ซ้ำกันคนละ path: "
+                      f"{class_dirs[class_name]} และ {root}")
+            class_dirs[class_name] = root
+
+    return class_dirs
+
+
+def check_class_distribution(input_dir):
+    """
+    นับจำนวนรูปในแต่ละ class (หา class folder แบบ recursive ด้วย find_class_folders)
+    """
+    class_dirs = find_class_folders(input_dir)
+
     distribution = {}
-    for class_name in os.listdir(input_dir):
-        class_path = os.path.join(input_dir, class_name)
-        if os.path.isdir(class_path):
-            count = len([f for f in os.listdir(class_path) if f.lower().endswith(VALID_EXT)])
-            distribution[class_name] = count
+    for class_name, class_path in class_dirs.items():
+        count = len([f for f in os.listdir(class_path) if f.lower().endswith(VALID_EXT)])
+        distribution[class_name] = count
 
     print("[Class Distribution]")
     for class_name, count in sorted(distribution.items(), key=lambda x: -x[1]):
@@ -246,22 +268,21 @@ def oversample_class(class_dir, target_count, dry_run=False):
 def balance_classes(input_dir, dry_run=False):
     """
     เช็ค class distribution แล้ว oversample ทุก class ที่มีไฟล์น้อยกว่า
-    ให้เท่ากับ class ที่มีไฟล์เยอะที่สุด (ใช้วิธี oversampling เป็นค่าเริ่มต้น)
-
-    เรียกฟังก์ชันนี้หลังจากลบไฟล์เสีย/ซ้ำใน OUTPUT_DIR เสร็จแล้วเท่านั้น
-    (ทำงานกับข้อมูลที่ผ่านการคัดกรองแล้ว ไม่ใช่ raw data)
+    ให้เท่ากับ class ที่มีไฟล์เยอะที่สุด
     """
-    distribution = check_class_distribution(input_dir)
-    if not distribution:
+    class_dirs = find_class_folders(input_dir)
+    if not class_dirs:
         print("[Balance Classes] ไม่พบ class ใดเลยใน", input_dir)
         return
+
+    distribution = {name: len([f for f in os.listdir(path) if f.lower().endswith(VALID_EXT)])
+                     for name, path in class_dirs.items()}
 
     max_count = max(distribution.values())
     print(f"[Balance Classes] จะปรับทุก class ให้มีไฟล์เท่ากับ class ที่เยอะที่สุด ({max_count} ไฟล์)")
 
-    for class_name in distribution:
-        class_dir = os.path.join(input_dir, class_name)
-        oversample_class(class_dir, max_count, dry_run=dry_run)
+    for class_name, class_path in class_dirs.items():
+        oversample_class(class_path, max_count, dry_run=dry_run)
 
 
 # =========================================================================
