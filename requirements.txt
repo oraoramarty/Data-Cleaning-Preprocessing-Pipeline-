@@ -1,6 +1,7 @@
 Pillow
 opencv-python
 numpy
+seaborn
 imagehash
 kagglehub
 kaggle>=1.5.0
