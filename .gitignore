@@ -1,2 +1,3 @@
 src/raw/
 data_collection.py
+data/cleaned/
