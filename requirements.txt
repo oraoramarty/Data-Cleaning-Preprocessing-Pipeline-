@@ -1,0 +1,6 @@
+Pillow
+opencv-python
+numpy
+imagehash
+pandas
+kagglehub
