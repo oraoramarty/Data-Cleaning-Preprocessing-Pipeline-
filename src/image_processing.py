@@ -440,12 +440,102 @@ def show_augment_before_after(df: pd.DataFrame,
     print(f"[SUCCESS] เซฟภาพเปรียบเทียบ Original/Augmented ที่: {save_path}")
 
 
+"""
+เทียบจำนวนข้อมูล "ก่อน-หลัง Clean" แยกตาม category (ไม่ใช่แค่ตัวเลขรวม) เพราะ:
+
+1. ถ้าดูแค่ยอดรวม อาจพลาดปัญหา class imbalance ที่เกิดขึ้นจากการ clean เช่น
+   บาง breed อาจถูกกรองออกไปเยอะผิดปกติ (ภาพเบลอ/ไฟล์เสียเยอะ) จนเหลือข้อมูลน้อยกว่า class อื่นมาก
+   ซึ่งจะกระทบตอนเทรนโมเดลโดยตรง (โมเดลจะ bias ไปทาง class ที่มีข้อมูลเยอะกว่า)
+
+2. removed_pct (เปอร์เซ็นต์ที่หายไป) สำคัญกว่า removed_count เฉย ๆ เพราะ breed ที่มีข้อมูลน้อยอยู่แล้ว
+   ถ้าโดน clean ออกไป 20 รูปจาก 30 รูป (66%) จะกระทบหนักกว่า breed ที่มี 500 รูปแล้วโดนออก 20 รูป (4%)
+   แม้ removed_count จะเท่ากันก็ตาม
+
+3. เก็บแถว TOTAL ไว้ด้วยเพื่อดูภาพรวมทั้ง dataset ควบคู่กับรายละเอียดแต่ละ class ในตารางเดียว
+"""
+def summarize_clean_counts(raw_dir: str, cleaned_dir: str) -> pd.DataFrame:
+    raw_df = load_images_from_folder(raw_dir)
+    cleaned_df = load_images_from_folder(cleaned_dir)
+
+    raw_counts = raw_df['category'].value_counts().rename('raw_count')
+    cleaned_counts = cleaned_df['category'].value_counts().rename('cleaned_count')
+
+    summary = pd.concat([raw_counts, cleaned_counts], axis=1).fillna(0).astype(int)
+    summary['removed_count'] = summary['raw_count'] - summary['cleaned_count']
+    summary['removed_pct'] = (
+        (summary['removed_count'] / summary['raw_count'].replace(0, np.nan)) * 100
+    ).round(2).fillna(0.0)
+    summary = summary.sort_values('raw_count', ascending=False)
+
+    total_row = pd.DataFrame({
+        'raw_count': [summary['raw_count'].sum()],
+        'cleaned_count': [summary['cleaned_count'].sum()],
+        'removed_count': [summary['removed_count'].sum()],
+        'removed_pct': [round(summary['removed_count'].sum() / summary['raw_count'].sum() * 100, 2)],
+    }, index=['TOTAL'])
+    summary = pd.concat([summary, total_row])
+
+    print("[INFO] สรุปจำนวนข้อมูล ก่อน-หลัง Clean (แยกตาม category):")
+    print(summary.to_string())
+
+    return summary
+
+
+def show_clean_summary(summary_df: pd.DataFrame,
+                        save_name: str = "clean_summary.png"):
+    plot_df = summary_df.drop(index='TOTAL', errors='ignore')
+
+    x = np.arange(len(plot_df))
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(max(8, len(plot_df) * 1.2), 6))
+    # หมายเหตุ: ใช้ text ภาษาอังกฤษล้วนบนกราฟ (title/label/legend) เพราะ matplotlib
+    # ไม่มีฟอนต์ไทย default ติดมาให้ ถ้าใส่ข้อความไทยตรงนี้จะขึ้นเป็นกล่องสี่เหลี่ยม (tofu box)
+    # แทนตัวอักษร -- ต่างจาก print() ที่ terminal render ภาษาไทยได้ปกติอยู่แล้ว
+    ax.bar(x - width / 2, plot_df['raw_count'], width, label='Raw (before clean)', color='steelblue')
+    ax.bar(x + width / 2, plot_df['cleaned_count'], width, label='Cleaned (after clean)', color='orange')
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(plot_df.index, rotation=45, ha='right')
+    ax.set_ylabel("Image count")
+    ax.set_title("Image Count per Category: Before vs After Clean")
+    ax.legend()
+
+    plt.tight_layout()
+    save_path = os.path.join(FIGURES_DIR, save_name)
+    plt.savefig(save_path)
+    plt.close()
+    print(f"[SUCCESS] เซฟกราฟสรุป Clean ที่: {save_path}")
+
+
 if __name__ == "__main__":
     import sys
 
-    INPUT_DIR = sys.argv[1] if len(sys.argv) > 1 else "data/cleaned/cat-breeds"
+    # หา RAW_DIR อัตโนมัติจาก Kaggle cache (ใช้ฟังก์ชันเดียวกับ preprocessing.py)
+    # kagglehub จะคืน path เดิมจาก cache ทันทีถ้าเคยโหลดแล้ว ไม่โหลดซ้ำ
+    # ถ้า import ไม่ได้ (ไม่มีไฟล์ preprocessing.py อยู่ข้าง ๆ หรือไม่ได้ลง kagglehub)
+    # ให้ fallback เป็น RAW_DIR=None แล้วข้ามขั้นตอนสรุป ก่อน-หลัง Clean ไปเฉย ๆ
+    RAW_DIR = None
+    try:
+        from preprocessing import find_kaggle_cache_path
+        _kaggle_root = find_kaggle_cache_path("nikolasgegenava/cat-breeds")
+        RAW_DIR = os.path.join(_kaggle_root, "cat-breeds")
+    except Exception as e:
+        print(f"[INFO] หา RAW_DIR จาก Kaggle cache ไม่ได้ ({e}) จะข้ามขั้นตอนสรุปก่อน-หลัง Clean")
+
+    # หมายเหตุ path: preprocessing.py ใช้ copy_valid_images(TEST_DIR, OUTPUT_DIR) โดย
+    # TEST_DIR = <kaggle_root>/cat-breeds และ OUTPUT_DIR = "data/cleaned"
+    # เพราะใช้ os.path.relpath(src_path, TEST_DIR) ไฟล์เลยไปอยู่ที่ data/cleaned/<breed>/...
+    # ไม่ใช่ data/cleaned/cat-breeds/<breed>/... จึงต้องแก้ INPUT_DIR ตรงนี้ให้ตรงกับของจริง
+    INPUT_DIR = sys.argv[1] if len(sys.argv) > 1 else "data/cleaned"
     RESIZED_DIR = "data/resized"
     TARGET_SIZE = (224, 224)
+
+    if RAW_DIR and os.path.isdir(RAW_DIR):
+        clean_summary_df = summarize_clean_counts(RAW_DIR, INPUT_DIR)
+        show_clean_summary(clean_summary_df)
+    else:
+        print(f"[INFO] ไม่พบ RAW_DIR จะข้ามขั้นตอนสรุปก่อน-หลัง Clean")
 
     df = load_images_from_folder(INPUT_DIR)
 
