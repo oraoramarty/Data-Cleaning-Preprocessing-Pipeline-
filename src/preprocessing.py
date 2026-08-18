@@ -1,5 +1,6 @@
 import os
 import shutil
+import random
 from PIL import Image
 import imagehash
 
@@ -165,6 +166,91 @@ def copy_valid_images(input_dir, output_dir):
     return copied_count
 
 
+# =========================================================================
+# ฟีเจอร์ 4: จัดการ Class Imbalance
+# =========================================================================
+def check_class_distribution(input_dir):
+    """
+    นับจำนวนรูปในแต่ละ class (แต่ละ subfolder ของ input_dir)
+    ใช้ดูก่อนว่า class ไหนมีรูปน้อย/มากผิดปกติ (Class Imbalance)
+
+    คืนค่า dict {class_name: จำนวนไฟล์}
+    """
+    if not os.path.isdir(input_dir):
+        raise FileNotFoundError(f"ไม่พบโฟลเดอร์: {input_dir}")
+
+    distribution = {}
+    for class_name in os.listdir(input_dir):
+        class_path = os.path.join(input_dir, class_name)
+        if os.path.isdir(class_path):
+            count = len([f for f in os.listdir(class_path) if f.lower().endswith(VALID_EXT)])
+            distribution[class_name] = count
+
+    print("[Class Distribution]")
+    for class_name, count in sorted(distribution.items(), key=lambda x: -x[1]):
+        print(f"   {class_name}: {count} ไฟล์")
+
+    return distribution
+
+
+def oversample_class(class_dir, target_count, dry_run=False):
+    """
+    เพิ่มไฟล์ใน class_dir ให้ครบ target_count โดย copy ไฟล์เดิมซ้ำแบบสุ่ม
+    (ไม่ได้สร้างภาพใหม่ แค่ duplicate ไฟล์ที่มีอยู่ เพื่อให้จำนวนเท่ากันทุก class)
+
+    วิธีอื่นที่เลือกใช้แทนได้ (แล้วแต่ความเหมาะสมของ dataset):
+      - Undersampling: ตัดไฟล์ class ที่เยอะเกินให้เหลือเท่า class ที่น้อยที่สุด
+      - Weighted Sampling: ไม่ต้องเพิ่ม/ลดไฟล์จริง แต่ปรับ weight ตอน train แทน
+
+    dry_run=True  -> รายงานว่าจะเพิ่มกี่ไฟล์ ไม่ copy จริง
+    dry_run=False -> copy ไฟล์ซ้ำจริง
+    """
+    files = [f for f in os.listdir(class_dir) if f.lower().endswith(VALID_EXT)]
+    current_count = len(files)
+
+    if current_count == 0:
+        print(f"[Oversample] {class_dir} ไม่มีไฟล์เลย ข้าม")
+        return 0
+
+    need = target_count - current_count
+    if need <= 0:
+        print(f"[Oversample] {class_dir} มี {current_count} ไฟล์ครบแล้ว (target={target_count}) ไม่ต้องเพิ่ม")
+        return 0
+
+    action = "จะเพิ่ม (dry run ไม่ได้ copy จริง)" if dry_run else "เพิ่มแล้ว"
+    for i in range(need):
+        src_name = random.choice(files)
+        src_path = os.path.join(class_dir, src_name)
+        dst_path = os.path.join(class_dir, f"aug_{i}_{src_name}")
+        if not dry_run:
+            shutil.copy2(src_path, dst_path)
+
+    print(f"[Oversample] {class_dir}: {action} {need} ไฟล์ ({current_count} -> {target_count})")
+    return need
+
+
+def balance_classes(input_dir, dry_run=False):
+    """
+    เช็ค class distribution แล้ว oversample ทุก class ที่มีไฟล์น้อยกว่า
+    ให้เท่ากับ class ที่มีไฟล์เยอะที่สุด (ใช้วิธี oversampling เป็นค่าเริ่มต้น)
+
+    เรียกฟังก์ชันนี้หลังจาก copy_valid_images() แล้ว
+    (ทำงานกับข้อมูลที่ผ่านการคัดกรองแล้วเท่านั้น ไม่ใช่ raw data)
+    """
+    distribution = check_class_distribution(input_dir)
+    if not distribution:
+        print("[Balance Classes] ไม่พบ class ใดเลยใน", input_dir)
+        return
+
+    max_count = max(distribution.values())
+    print(f"[Balance Classes] จะปรับทุก class ให้มีไฟล์เท่ากับ class ที่เยอะที่สุด ({max_count} ไฟล์)")
+
+    for class_name in distribution:
+        class_dir = os.path.join(input_dir, class_name)
+        oversample_class(class_dir, max_count, dry_run=dry_run)
+        
+
+
 if __name__ == "__main__":
     # 0. หา path ของ dataset ใน Kaggle cache อัตโนมัติ (ไม่ต้องพิมพ์ path เอง)
     raw_dir = find_kaggle_cache_path("nikolasgegenava/cat-breeds")
@@ -184,3 +270,14 @@ if __name__ == "__main__":
     duplicates = find_duplicate_images(TEST_DIR)
     remove_duplicate_images(duplicates, dry_run=True)
     # remove_duplicate_images(duplicates, dry_run=False)
+
+    # ---- ฟีเจอร์ 3: ดึงไฟล์ที่ผ่านเกณฑ์ไปโฟลเดอร์ใหม่ ----
+    # รันหลังจากลบไฟล์เสีย/ซ้ำจริงแล้วเท่านั้น (dry_run=False ทั้งสองขั้นตอนข้างบน)
+    # copy_valid_images(TEST_DIR, OUTPUT_DIR)
+
+    # ---- ฟีเจอร์ 4: จัดการ Class Imbalance ----
+    # ทำงานกับ OUTPUT_DIR (ข้อมูลที่คัดกรองแล้ว) ไม่ใช่ TEST_DIR (raw)
+    # ขั้นแรกลอง dry_run=True เพื่อดูว่าจะเพิ่มไฟล์กี่ไฟล์ต่อ class ก่อน
+    # check_class_distribution(OUTPUT_DIR)
+    # balance_classes(OUTPUT_DIR, dry_run=True)
+    # balance_classes(OUTPUT_DIR, dry_run=False)
