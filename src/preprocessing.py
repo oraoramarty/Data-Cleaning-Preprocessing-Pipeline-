@@ -27,6 +27,51 @@ def find_kaggle_cache_path(dataset_handle="nikolasgegenava/cat-breeds"):
 
 
 # =========================================================================
+# ฟีเจอร์ 3: ดึงไฟล์ภาพทั้งหมดออกมาวางในโฟลเดอร์ทำงานใหม่
+# =========================================================================
+# หมายเหตุ: ย้ายฟีเจอร์นี้มาไว้เป็นขั้นตอนแรกสุด (ก่อนฟีเจอร์ 1/2)
+# เพื่อไม่ให้ remove_corrupted_images / remove_duplicate_images ไปลบไฟล์
+# ใน raw dataset (Kaggle cache) โดยตรง -- ต้อง copy มาไว้ที่ output_dir
+# ก่อนเสมอ แล้วค่อยลบไฟล์เสีย/ซ้ำ "บนไฟล์ copy" เท่านั้น
+# เหตุผล: raw data ต้องเก็บไว้ครบสำหรับให้ EDA (คนที่ 2) เทียบ
+# before/after ได้ และไม่ต้องดาวน์โหลด dataset ใหม่ทุกครั้งที่ต้องการรีเซ็ต
+def copy_valid_images(input_dir, output_dir):
+    """
+    Copy ไฟล์ภาพทั้งหมดจาก input_dir (raw data) ไปยัง output_dir
+    โดยรักษาโครงสร้าง subfolder เดิมไว้ (เช่น แยกตาม class)
+
+    เรียกฟังก์ชันนี้เป็นขั้นตอนแรกสุด ก่อน remove_corrupted_images และ
+    remove_duplicate_images เสมอ เพื่อให้ทุกการลบไฟล์เกิดขึ้นบน output_dir
+    (โฟลเดอร์ทำงาน) เท่านั้น ไม่ใช่บน raw dataset ต้นฉบับ
+
+    คืนค่า: จำนวนไฟล์ที่ copy สำเร็จ
+    """
+    if not os.path.isdir(input_dir):
+        raise FileNotFoundError(f"ไม่พบโฟลเดอร์: {input_dir}")
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    copied_count = 0
+    for root, _, files in os.walk(input_dir):
+        for fname in files:
+            if not fname.lower().endswith(VALID_EXT):
+                continue
+
+            src_path = os.path.join(root, fname)
+
+            # รักษาโครงสร้างโฟลเดอร์ย่อย (เช่น class ของแมว) เหมือนต้นฉบับ
+            rel_path = os.path.relpath(src_path, input_dir)
+            dst_path = os.path.join(output_dir, rel_path)
+            os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+
+            shutil.copy2(src_path, dst_path)  # copy2 = คัดลอกพร้อม metadata
+            copied_count += 1
+
+    print(f"[Copy Valid Images] คัดลอกไฟล์ทั้งหมด {copied_count} ไฟล์ -> {output_dir}")
+    return copied_count
+
+
+# =========================================================================
 # ฟีเจอร์ 1: ลบไฟล์ที่เสียหายหรือใช้งานไม่ได้ (Corrupted Images)
 # =========================================================================
 def is_corrupted(filepath):
@@ -46,6 +91,10 @@ def is_corrupted(filepath):
 def remove_corrupted_images(input_dir, dry_run=False):
     """
     สแกนทุกไฟล์ภาพใน input_dir (รวม subfolder) หาไฟล์ที่เสีย
+
+    !! ต้องเรียกด้วย OUTPUT_DIR (โฟลเดอร์ copy) เท่านั้น ห้ามเรียกด้วย
+    TEST_DIR (raw cache) ตรง ๆ เพราะฟังก์ชันนี้ลบไฟล์จริงถ้า dry_run=False
+
     dry_run=True  -> แค่รายงานว่าจะลบอะไรบ้าง ไม่ลบจริง (ใช้เช็คก่อนได้)
     dry_run=False -> ลบไฟล์เสียจริง
 
@@ -79,6 +128,9 @@ def find_duplicate_images(input_dir, hash_size=8):
     """
     ใช้ Perceptual Hash (phash) หารูปที่ "หน้าตาเหมือนกัน" แม้ชื่อไฟล์ต่างกัน
     หรือถูก resize/บีบอัดมาต่างกันเล็กน้อย (ต่างจากการเทียบไฟล์แบบ byte-to-byte)
+
+    !! ต้องเรียกด้วย OUTPUT_DIR (โฟลเดอร์ copy) เท่านั้น เช่นเดียวกับ
+    remove_corrupted_images
 
     คืนค่า dict {hash: [path1, path2, ...]} เฉพาะกลุ่มที่มีมากกว่า 1 ไฟล์ (ซ้ำกัน)
     """
@@ -126,44 +178,6 @@ def remove_duplicate_images(duplicates, dry_run=False):
     print(f"[Duplicate Images] {action} ทั้งหมด {len(removed)} ไฟล์")
 
     return removed
-
-
-# =========================================================================
-# ฟีเจอร์ 3: ดึงไฟล์ภาพที่ถูกต้อง (ผ่านการคัดกรองแล้ว) ออกมาวางในโฟลเดอร์ใหม่
-# =========================================================================
-def copy_valid_images(input_dir, output_dir):
-    """
-    เรียกหลังจากลบไฟล์เสีย/ซ้ำออกจาก input_dir แล้ว (ด้วย remove_corrupted_images
-    และ remove_duplicate_images ที่ dry_run=False)
-
-    Copy ไฟล์ภาพที่เหลือทั้งหมดใน input_dir ไปยัง output_dir
-    โดยรักษาโครงสร้าง subfolder เดิมไว้ (เช่น แยกตาม class)
-
-    คืนค่า: จำนวนไฟล์ที่ copy สำเร็จ
-    """
-    if not os.path.isdir(input_dir):
-        raise FileNotFoundError(f"ไม่พบโฟลเดอร์: {input_dir}")
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    copied_count = 0
-    for root, _, files in os.walk(input_dir):
-        for fname in files:
-            if not fname.lower().endswith(VALID_EXT):
-                continue
-
-            src_path = os.path.join(root, fname)
-
-            # รักษาโครงสร้างโฟลเดอร์ย่อย (เช่น class ของแมว) เหมือนต้นฉบับ
-            rel_path = os.path.relpath(src_path, input_dir)
-            dst_path = os.path.join(output_dir, rel_path)
-            os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-
-            shutil.copy2(src_path, dst_path)  # copy2 = คัดลอกพร้อม metadata
-            copied_count += 1
-
-    print(f"[Copy Valid Images] คัดลอกไฟล์ที่ผ่านเกณฑ์แล้ว {copied_count} ไฟล์ -> {output_dir}")
-    return copied_count
 
 
 # =========================================================================
@@ -234,8 +248,8 @@ def balance_classes(input_dir, dry_run=False):
     เช็ค class distribution แล้ว oversample ทุก class ที่มีไฟล์น้อยกว่า
     ให้เท่ากับ class ที่มีไฟล์เยอะที่สุด (ใช้วิธี oversampling เป็นค่าเริ่มต้น)
 
-    เรียกฟังก์ชันนี้หลังจาก copy_valid_images() แล้ว
-    (ทำงานกับข้อมูลที่ผ่านการคัดกรองแล้วเท่านั้น ไม่ใช่ raw data)
+    เรียกฟังก์ชันนี้หลังจากลบไฟล์เสีย/ซ้ำใน OUTPUT_DIR เสร็จแล้วเท่านั้น
+    (ทำงานกับข้อมูลที่ผ่านการคัดกรองแล้ว ไม่ใช่ raw data)
     """
     distribution = check_class_distribution(input_dir)
     if not distribution:
@@ -408,34 +422,24 @@ if __name__ == "__main__":
     raw_dir = find_kaggle_cache_path("nikolasgegenava/cat-breeds")
 
     # dataset นี้มีรูปอยู่ใน subfolder ชื่อ "cat-breeds" ตามที่ data_collection.py ของทีมระบุไว้
-    TEST_DIR = os.path.join(raw_dir, "cat-breeds")
-    OUTPUT_DIR = "data/cleaned"
+    TEST_DIR = os.path.join(raw_dir, "cat-breeds")  # raw data (ห้ามแก้ไข/ลบไฟล์ในนี้)
+    OUTPUT_DIR = "data/cleaned"                     # โฟลเดอร์ทำงาน (ลบ/แก้ไขได้อิสระ)
 
-    # ---- ฟีเจอร์ 1: ไฟล์เสีย ----
-    # ขั้นแรกลอง dry_run=True ก่อน เพื่อดูว่าจะลบอะไรบ้างโดยยังไม่ลบจริง
-    remove_corrupted_images(TEST_DIR, dry_run=False)
-    # ถ้าเช็คแล้วโอเค ค่อยรันจริงโดยเปลี่ยนเป็น dry_run=False
-    # remove_corrupted_images(TEST_DIR, dry_run=False)
-
-    # ---- ฟีเจอร์ 2: รูปซ้ำ ----
-    # ควรรันหลังลบไฟล์เสียแล้ว จะได้ไม่เสียเวลา hash ไฟล์ที่เสียอยู่แล้ว
-    duplicates = find_duplicate_images(TEST_DIR)
-    remove_duplicate_images(duplicates, dry_run=False)
-    # remove_duplicate_images(duplicates, dry_run=False)
-
-    # ---- ฟีเจอร์ 3: ดึงไฟล์ที่ผ่านเกณฑ์ไปโฟลเดอร์ใหม่ ----
-    # รันหลังจากลบไฟล์เสีย/ซ้ำจริงแล้วเท่านั้น (dry_run=False ทั้งสองขั้นตอนข้างบน)
+    # ---- ฟีเจอร์ 3: copy raw data ทั้งหมดไป OUTPUT_DIR ก่อนเป็นอันดับแรก ----
+    # ทำก่อนเสมอ เพื่อไม่ให้ remove_corrupted_images/remove_duplicate_images
+    # ไปแก้ไข raw dataset ใน Kaggle cache (TEST_DIR) โดยตรง
     copy_valid_images(TEST_DIR, OUTPUT_DIR)
 
+    # ---- ฟีเจอร์ 1: ไฟล์เสีย (ทำงานบน OUTPUT_DIR เท่านั้น) ----
+    remove_corrupted_images(OUTPUT_DIR, dry_run=False)
+
+    # ---- ฟีเจอร์ 2: รูปซ้ำ (ทำงานบน OUTPUT_DIR เท่านั้น) ----
+    duplicates = find_duplicate_images(OUTPUT_DIR)
+    remove_duplicate_images(duplicates, dry_run=False)
+
     # ---- ฟีเจอร์ 4: จัดการ Class Imbalance ----
-    # ทำงานกับ OUTPUT_DIR (ข้อมูลที่คัดกรองแล้ว) ไม่ใช่ TEST_DIR (raw)
-    # ขั้นแรกลอง dry_run=True เพื่อดูว่าจะเพิ่มไฟล์กี่ไฟล์ต่อ class ก่อน
     check_class_distribution(OUTPUT_DIR)
-    # balance_classes(OUTPUT_DIR, dry_run=True)
     balance_classes(OUTPUT_DIR, dry_run=False)
 
     # ---- ฟีเจอร์ 5: แปลง Format + Color Space ให้เป็นมาตรฐานเดียวกัน ----
-    # ควรรันกับ OUTPUT_DIR (ข้อมูลที่คัดกรอง/copy มาแล้ว) ไม่ใช่ raw data โดยตรง
-    # ขั้นแรกลอง dry_run=True เพื่อดูว่าจะแปลงไฟล์ไหนบ้าง (mode เดิม/นามสกุลเดิม)
-    # standardize_dataset(OUTPUT_DIR, target_format="JPEG", target_mode="RGB", dry_run=True)
     standardize_dataset(OUTPUT_DIR, target_format="JPEG", target_mode="RGB", dry_run=False)
