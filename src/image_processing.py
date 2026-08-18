@@ -2,7 +2,8 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from PIL import Image, ImageFilter
+import random
+from PIL import Image, ImageFilter, ImageOps, ImageEnhance, ImageEnhance, ImageOps
 
 FIGURES_DIR = os.path.join("reports", "figures")
 os.makedirs(FIGURES_DIR, exist_ok=True)
@@ -307,6 +308,138 @@ def show_denoise_before_after(df: pd.DataFrame, method: str = "median",
     print(f"[SUCCESS] เซฟภาพเปรียบเทียบ Before/After ที่: {save_path}")
 
 
+"""
+เลือกใช้ 4 เทคนิคนี้เพราะ dataset เป็นภาพ "cat-breeds" (จำแนกสายพันธุ์แมว) โดยแต่ละเทคนิคช่วยจำลอง
+ความแปรปรวนที่พบได้จริงตอนถ่ายภาพ โดยไม่ทำให้ label (สายพันธุ์) เปลี่ยนไป:
+
+1. horizontal_flip (พลิกซ้าย-ขวา) — แมวหันซ้ายหรือขวาก็ยังเป็นสายพันธุ์เดิม ไม่มีความหมายเชิงทิศทาง
+   จึงเป็นเทคนิคที่ "ปลอดภัย" ที่สุดและได้ผลดีมากสำหรับงาน image classification ทั่วไป
+   *ไม่ใช้ vertical_flip* เพราะแมวกลับหัวไม่ใช่สิ่งที่เจอในข้อมูลจริง จะทำให้โมเดลเรียนรู้ pattern ที่ผิดธรรมชาติ
+
+2. rotation (หมุนมุมเล็กน้อย ±ไม่เกิน 20 องศา) — จำลองมุมกล้องที่เอียงตอนถ่ายจริง (มือสั่น/ถ่ายไม่ตรง)
+   จำกัดองศาไม่ให้เยอะเกินไป เพราะถ้าหมุนมาก ๆ ภาพจะเสียสัดส่วนและมี padding ดำเข้ามารบกวน
+
+3. brightness/contrast adjustment — จำลองสภาพแสงที่ต่างกัน (ถ่ายในบ้าน/กลางแจ้ง/มีแฟลช)
+   เพราะแสงเป็นตัวแปรที่เปลี่ยนบ่อยที่สุดใน dataset ที่รวบรวมจากหลายแหล่ง ช่วยให้โมเดลไม่ overfit กับความสว่างเฉพาะจุด
+
+4. random_crop_zoom (crop แล้วขยายกลับ) — จำลองระยะห่างจากกล้อง/การจัดองค์ประกอบภาพที่ต่างกัน
+   บังคับให้โมเดลโฟกัสที่ลักษณะเด่นของแมว (ลาย, รูปหน้า, หู) แทนที่จะจำ background หรือตำแหน่งของวัตถุในเฟรม
+
+ทุกเทคนิครวมกันในฟังก์ชันเดียว (augment_image) แบบสุ่มว่าจะใช้ตัวไหนบ้าง เพื่อให้แต่ละภาพที่ออกมามีความหลากหลาย
+ไม่ใช่ apply ทุกเทคนิคพร้อมกันเสมอ ซึ่งจะทำให้ภาพเพี้ยนเกินจริงจนไม่เหมือนข้อมูลจริง
+"""
+def augment_image(image: Image.Image,
+                   techniques: tuple = ("flip", "rotate", "brightness", "crop_zoom"),
+                   rotate_range: float = 20.0,
+                   brightness_range: tuple = (0.7, 1.3),
+                   contrast_range: tuple = (0.7, 1.3),
+                   crop_scale_range: tuple = (0.8, 1.0),
+                   rng: np.random.Generator = None) -> Image.Image:
+    if rng is None:
+        rng = np.random.default_rng()
+
+    img = image
+
+    if "flip" in techniques and rng.random() < 0.5:
+        img = ImageOps.mirror(img)
+
+    if "rotate" in techniques:
+        angle = rng.uniform(-rotate_range, rotate_range)
+        img = img.rotate(angle, resample=Image.Resampling.BILINEAR,
+                          fillcolor=(0, 0, 0))
+
+    if "brightness" in techniques:
+        brightness_factor = rng.uniform(*brightness_range)
+        img = ImageEnhance.Brightness(img).enhance(brightness_factor)
+
+        contrast_factor = rng.uniform(*contrast_range)
+        img = ImageEnhance.Contrast(img).enhance(contrast_factor)
+
+    if "crop_zoom" in techniques:
+        orig_w, orig_h = img.size
+        scale = rng.uniform(*crop_scale_range)
+        crop_w, crop_h = int(orig_w * scale), int(orig_h * scale)
+
+        left = rng.integers(0, max(1, orig_w - crop_w + 1))
+        top = rng.integers(0, max(1, orig_h - crop_h + 1))
+        img = img.crop((left, top, left + crop_w, top + crop_h))
+        img = img.resize((orig_w, orig_h), Image.Resampling.LANCZOS)
+
+    return img
+
+
+def augment_dataset(df: pd.DataFrame, output_dir: str,
+                     n_augments_per_image: int = 3,
+                     techniques: tuple = ("flip", "rotate", "brightness", "crop_zoom"),
+                     seed: int = 42) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    records = []
+
+    # เก็บภาพต้นฉบับไว้ในผลลัพธ์ด้วย ไม่ใช่แค่ภาพที่ augment แล้ว
+    # เพราะการ train ควรเห็นทั้งข้อมูลจริงและข้อมูลที่ขยายเพิ่ม ไม่ใช่แทนที่กันไปเลย
+    for _, row in df.iterrows():
+        src_path = row['file_path']
+        category = row['category']
+        dst_folder = os.path.join(output_dir, category)
+        os.makedirs(dst_folder, exist_ok=True)
+
+        base_name, ext = os.path.splitext(os.path.basename(src_path))
+        orig_dst = os.path.join(dst_folder, f"{base_name}{ext}")
+
+        try:
+            with Image.open(src_path) as img:
+                img = img.convert('RGB')
+                img.save(orig_dst)
+                records.append({'file_path': orig_dst, 'category': category})
+
+                for aug_idx in range(n_augments_per_image):
+                    augmented = augment_image(img, techniques=techniques, rng=rng)
+                    aug_dst = os.path.join(dst_folder, f"{base_name}_aug{aug_idx}{ext}")
+                    augmented.save(aug_dst)
+                    records.append({'file_path': aug_dst, 'category': category})
+        except Exception as e:
+            print(f"[WARNING] Augment ไม่สำเร็จ: {src_path} ({e})")
+            continue
+
+    result_df = pd.DataFrame(records)
+    print(f"[SUCCESS] Augment เสร็จสิ้น: {len(df)} รูปต้นฉบับ -> {len(result_df)} รูปรวม -> {output_dir}")
+    return result_df
+
+
+def show_augment_before_after(df: pd.DataFrame,
+                               techniques: tuple = ("flip", "rotate", "brightness", "crop_zoom"),
+                               n_samples: int = 4,
+                               n_variants: int = 3,
+                               save_name: str = "augment_before_after.png"):
+    samples = df.sample(min(n_samples, len(df)))
+    rng = np.random.default_rng(0)
+
+    fig, axes = plt.subplots(n_samples, n_variants + 1, figsize=(4 * (n_variants + 1), 4 * n_samples))
+    if n_samples == 1:
+        axes = axes.reshape(1, -1)
+
+    for i, (_, row) in enumerate(samples.iterrows()):
+        with Image.open(row['file_path']) as img:
+            img = img.convert('RGB')
+
+            axes[i, 0].imshow(img)
+            axes[i, 0].set_title("Original")
+            axes[i, 0].axis('off')
+
+            for v in range(n_variants):
+                augmented = augment_image(img, techniques=techniques, rng=rng)
+                axes[i, v + 1].imshow(augmented)
+                axes[i, v + 1].set_title(f"Augmented #{v + 1}")
+                axes[i, v + 1].axis('off')
+
+    plt.suptitle("Data Augmentation: Original vs Augmented Variants")
+    plt.tight_layout()
+    save_path = os.path.join(FIGURES_DIR, save_name)
+    plt.savefig(save_path)
+    plt.close()
+    print(f"[SUCCESS] เซฟภาพเปรียบเทียบ Original/Augmented ที่: {save_path}")
+
+
 if __name__ == "__main__":
     import sys
 
@@ -329,3 +462,7 @@ if __name__ == "__main__":
 
     mean, std = compute_dataset_mean_std(denoised_df)
     show_normalize_before_after(denoised_df, method="imagenet")
+
+    AUGMENTED_DIR = "data/augmented"
+    augmented_df = augment_dataset(denoised_df, AUGMENTED_DIR, n_augments_per_image=3)
+    show_augment_before_after(denoised_df)
