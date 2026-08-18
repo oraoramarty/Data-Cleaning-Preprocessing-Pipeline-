@@ -248,7 +248,159 @@ def balance_classes(input_dir, dry_run=False):
     for class_name in distribution:
         class_dir = os.path.join(input_dir, class_name)
         oversample_class(class_dir, max_count, dry_run=dry_run)
-        
+
+
+# =========================================================================
+# ฟีเจอร์ 5: แปลง Format และ Color Space ให้เป็นมาตรฐานเดียวกัน
+# =========================================================================
+def standardize_image(
+    filepath,
+    output_path=None,
+    target_format="JPEG",
+    target_mode="RGB",
+    quality=95,
+):
+    """
+    เปิดไฟล์ภาพ 1 ไฟล์ แล้วแปลงให้เป็นมาตรฐานเดียวกัน:
+      1. Color Space -> target_mode (ค่าเริ่มต้น "RGB")
+         รองรับกรณีภาพเป็น Grayscale (L), มี Alpha channel (RGBA/LA/P), หรือ CMYK
+      2. Format -> target_format (ค่าเริ่มต้น "JPEG")
+         เช่นถ้า dataset ปนกันทั้ง .jpg/.jpeg/.png ให้แปลงเป็น .jpg ทั้งหมด
+
+    filepath     : path ไฟล์ภาพต้นฉบับ
+    output_path  : path ปลายทาง ถ้าไม่ระบุ (None) จะ overwrite ไฟล์เดิม
+                   (เปลี่ยนนามสกุลไฟล์ให้ตรงกับ target_format อัตโนมัติ)
+    target_format: "JPEG" หรือ "PNG" (ตาม Pillow format name)
+    target_mode  : "RGB" (ค่ามาตรฐานสำหรับ dataset ทั่วไป) หรือ mode อื่นของ Pillow
+    quality      : คุณภาพตอน save (ใช้เฉพาะกรณี JPEG, ช่วง 1-95)
+
+    คืนค่า: path ของไฟล์ผลลัพธ์ที่ save ไปแล้ว หรือ None ถ้าแปลงไม่สำเร็จ
+    """
+    ext_map = {"JPEG": ".jpg", "PNG": ".png"}
+    target_ext = ext_map.get(target_format.upper(), ".jpg")
+
+    if output_path is None:
+        base, _ = os.path.splitext(filepath)
+        output_path = base + target_ext
+    else:
+        base, _ = os.path.splitext(output_path)
+        output_path = base + target_ext
+
+    try:
+        with Image.open(filepath) as img:
+            # กรณีภาพมี Alpha channel (RGBA, LA, P ที่มี transparency)
+            # ต้อง flatten ด้วยพื้นหลังสีขาวก่อน ไม่งั้นแปลงเป็น RGB ตรง ๆ
+            # จะทำให้บริเวณโปร่งใสกลายเป็นสีดำ/สีเพี้ยน
+            if img.mode in ("RGBA", "LA") or (
+                img.mode == "P" and "transparency" in img.info
+            ):
+                img = img.convert("RGBA")
+                background = Image.new("RGB", img.size, (255, 255, 255))
+                background.paste(img, mask=img.split()[-1])  # ใช้ alpha channel เป็น mask
+                img = background
+            elif img.mode != target_mode:
+                # กรณีอื่น เช่น Grayscale (L), CMYK, P (ไม่มี transparency)
+                img = img.convert(target_mode)
+
+            save_kwargs = {}
+            if target_format.upper() == "JPEG":
+                save_kwargs["quality"] = quality
+                save_kwargs["optimize"] = True
+
+            img.save(output_path, format=target_format.upper(), **save_kwargs)
+
+        return output_path
+
+    except Exception as e:
+        print(f"   [ERROR] แปลงไฟล์ไม่สำเร็จ: {filepath} -> {e}")
+        return None
+
+
+def standardize_dataset(
+    input_dir,
+    target_format="JPEG",
+    target_mode="RGB",
+    quality=95,
+    dry_run=False,
+):
+    """
+    สแกนทุกไฟล์ภาพใน input_dir (รวม subfolder) แล้วแปลง format + color space
+    ให้เป็นมาตรฐานเดียวกันทั้ง dataset (เรียกใช้ standardize_image ทีละไฟล์)
+
+    ถ้าไฟล์ต้นฉบับมีนามสกุลไม่ตรงกับ target_format (เช่นเดิมเป็น .png แต่แปลงเป็น .jpg)
+    จะ save ไฟล์ใหม่แล้วลบไฟล์เดิมทิ้ง เพื่อไม่ให้เหลือไฟล์ซ้ำซ้อนสองสกุล
+
+    dry_run=True  -> แค่รายงานว่าจะแปลงไฟล์ไหนบ้าง (บอก mode เดิม) ไม่แปลงจริง
+    dry_run=False -> แปลงไฟล์จริงทั้งหมด
+
+    คืนค่า: dict สรุปผล {"converted": [...], "failed": [...], "skipped": [...]}
+    """
+    if not os.path.isdir(input_dir):
+        raise FileNotFoundError(f"ไม่พบโฟลเดอร์: {input_dir}")
+
+    target_ext = {"JPEG": ".jpg", "PNG": ".png"}.get(target_format.upper(), ".jpg")
+
+    result = {"converted": [], "failed": [], "skipped": []}
+
+    for root, _, files in os.walk(input_dir):
+        for fname in files:
+            if not fname.lower().endswith(VALID_EXT):
+                continue
+
+            src_path = os.path.join(root, fname)
+
+            try:
+                with Image.open(src_path) as img:
+                    current_mode = img.mode
+                    current_ext = os.path.splitext(fname)[1].lower()
+            except Exception as e:
+                result["failed"].append(src_path)
+                print(f"   [ERROR] เปิดไฟล์ไม่ได้ (ข้าม): {src_path} -> {e}")
+                continue
+
+            # ถ้าทั้ง mode และ นามสกุล ตรงมาตรฐานอยู่แล้ว ไม่ต้องแปลง
+            already_standard = (
+                current_mode == target_mode and current_ext == target_ext
+            )
+            if already_standard:
+                result["skipped"].append(src_path)
+                continue
+
+            if dry_run:
+                print(
+                    f"   [DRY RUN] จะแปลง: {src_path} "
+                    f"(mode เดิม={current_mode}, นามสกุลเดิม={current_ext} "
+                    f"-> mode={target_mode}, นามสกุล={target_ext})"
+                )
+                result["converted"].append(src_path)
+                continue
+
+            new_path = standardize_image(
+                src_path,
+                target_format=target_format,
+                target_mode=target_mode,
+                quality=quality,
+            )
+
+            if new_path is None:
+                result["failed"].append(src_path)
+                continue
+
+            # ถ้านามสกุลเปลี่ยน (เช่น .png -> .jpg) ให้ลบไฟล์เดิมทิ้ง
+            # กันไม่ให้เหลือทั้งสองไฟล์ค้างอยู่
+            if os.path.abspath(new_path) != os.path.abspath(src_path):
+                os.remove(src_path)
+
+            result["converted"].append(new_path)
+
+    action = "จะแปลง (dry run ไม่ได้แปลงจริง)" if dry_run else "แปลงแล้ว"
+    print(
+        f"[Standardize Dataset] {action} {len(result['converted'])} ไฟล์, "
+        f"ข้าม (มาตรฐานอยู่แล้ว) {len(result['skipped'])} ไฟล์, "
+        f"ล้มเหลว {len(result['failed'])} ไฟล์"
+    )
+
+    return result
 
 
 if __name__ == "__main__":
@@ -261,23 +413,29 @@ if __name__ == "__main__":
 
     # ---- ฟีเจอร์ 1: ไฟล์เสีย ----
     # ขั้นแรกลอง dry_run=True ก่อน เพื่อดูว่าจะลบอะไรบ้างโดยยังไม่ลบจริง
-    remove_corrupted_images(TEST_DIR, dry_run=True)
+    remove_corrupted_images(TEST_DIR, dry_run=False)
     # ถ้าเช็คแล้วโอเค ค่อยรันจริงโดยเปลี่ยนเป็น dry_run=False
     # remove_corrupted_images(TEST_DIR, dry_run=False)
 
     # ---- ฟีเจอร์ 2: รูปซ้ำ ----
     # ควรรันหลังลบไฟล์เสียแล้ว จะได้ไม่เสียเวลา hash ไฟล์ที่เสียอยู่แล้ว
     duplicates = find_duplicate_images(TEST_DIR)
-    remove_duplicate_images(duplicates, dry_run=True)
+    remove_duplicate_images(duplicates, dry_run=False)
     # remove_duplicate_images(duplicates, dry_run=False)
 
     # ---- ฟีเจอร์ 3: ดึงไฟล์ที่ผ่านเกณฑ์ไปโฟลเดอร์ใหม่ ----
     # รันหลังจากลบไฟล์เสีย/ซ้ำจริงแล้วเท่านั้น (dry_run=False ทั้งสองขั้นตอนข้างบน)
-    # copy_valid_images(TEST_DIR, OUTPUT_DIR)
+    copy_valid_images(TEST_DIR, OUTPUT_DIR)
 
     # ---- ฟีเจอร์ 4: จัดการ Class Imbalance ----
     # ทำงานกับ OUTPUT_DIR (ข้อมูลที่คัดกรองแล้ว) ไม่ใช่ TEST_DIR (raw)
     # ขั้นแรกลอง dry_run=True เพื่อดูว่าจะเพิ่มไฟล์กี่ไฟล์ต่อ class ก่อน
-    # check_class_distribution(OUTPUT_DIR)
+    check_class_distribution(OUTPUT_DIR)
     # balance_classes(OUTPUT_DIR, dry_run=True)
-    # balance_classes(OUTPUT_DIR, dry_run=False)
+    balance_classes(OUTPUT_DIR, dry_run=False)
+
+    # ---- ฟีเจอร์ 5: แปลง Format + Color Space ให้เป็นมาตรฐานเดียวกัน ----
+    # ควรรันกับ OUTPUT_DIR (ข้อมูลที่คัดกรอง/copy มาแล้ว) ไม่ใช่ raw data โดยตรง
+    # ขั้นแรกลอง dry_run=True เพื่อดูว่าจะแปลงไฟล์ไหนบ้าง (mode เดิม/นามสกุลเดิม)
+    # standardize_dataset(OUTPUT_DIR, target_format="JPEG", target_mode="RGB", dry_run=True)
+    standardize_dataset(OUTPUT_DIR, target_format="JPEG", target_mode="RGB", dry_run=False)
