@@ -51,7 +51,6 @@ def run_eda():
                 # กำหนด Category จากชื่อโฟลเดอร์ที่เก็บไฟล์ภาพนั้นๆ
                 category = os.path.basename(root)
 
-                # 1. ตรวจสอบไฟล์เสีย (Corrupted)
                 # 1. ตรวจสอบไฟล์เสีย (Corrupted) และแปลงโหมดภาพ
                 try:
                     with Image.open(img_path) as img:
