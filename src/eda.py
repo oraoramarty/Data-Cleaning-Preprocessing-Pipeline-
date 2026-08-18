@@ -7,7 +7,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from PIL import Image
 import sys
+import warnings
 
+warnings.filterwarnings("ignore", category=UserWarning, module="PIL")
 # เพิ่ม Root Path ป้องกัน ModuleNotFoundError
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -50,13 +52,21 @@ def run_eda():
                 category = os.path.basename(root)
 
                 # 1. ตรวจสอบไฟล์เสีย (Corrupted)
+                # 1. ตรวจสอบไฟล์เสีย (Corrupted) และแปลงโหมดภาพ
                 try:
                     with Image.open(img_path) as img:
                         img.verify()
                     with Image.open(img_path) as img:
-                        img_data = img.convert('RGB')
-                        width, height = img.size
                         mode = img.mode
+                        
+                        # --- วางส่วนนี้แทนที่ img_data = img.convert('RGB') เดิม ---
+                        if mode in ('RGBA', 'LA', 'P'):
+                            img_data = img.convert('RGBA').convert('RGB')
+                        else:
+                            img_data = img.convert('RGB')
+                            
+                        width, height = img.size
+                        # --------------------------------------------------------
                 except Exception:
                     corrupted_files.append(img_path)
                     continue
