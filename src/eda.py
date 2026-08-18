@@ -125,7 +125,7 @@ def run_eda():
     plt.xlabel('Cat Breed Category')
     plt.ylabel('Number of Images')
     plt.tight_layout()
-    plt.savefig(os.path.join(FIGURES_DIR, "class_distribution.png"))
+    plt.savefig(FIGURES_DIR / "class_distribution.png")
     plt.close()
 
     # 2. Dimensions & Aspect Ratio & File Size
@@ -137,7 +137,7 @@ def run_eda():
     sns.histplot(df['file_size_kb'], kde=True, color='green', ax=axes[2])
     axes[2].set_title('File Size Distribution (KB)')
     plt.tight_layout()
-    plt.savefig(os.path.join(FIGURES_DIR, "image_dimensions.png"))
+    plt.savefig(FIGURES_DIR / "image_dimensions.png")
     plt.close()
 
     # 3. Pixel Intensity Distribution
@@ -150,7 +150,7 @@ def run_eda():
     plt.ylabel('Density')
     plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.join(FIGURES_DIR, "pixel_intensity.png"))
+    plt.savefig(FIGURES_DIR / "pixel_intensity.png")
     plt.close()
 
     # 4. Sample Grid
@@ -172,7 +172,7 @@ def run_eda():
         axes[idx].axis('off')
 
     plt.tight_layout()
-    plt.savefig(os.path.join(FIGURES_DIR, "sample_grid.png"))
+    plt.savefig(FIGURES_DIR / "sample_grid.png")
     plt.close()
 
     print(f"\n[SUCCESS] เซฟรูปภาพทั้งหมดลงใน '{FIGURES_DIR}' เรียบร้อยแล้ว!")
