@@ -39,13 +39,13 @@ def suggest_target_size(df_stats: pd.DataFrame) -> tuple:
     return (median_w, median_h)
 
 
-"""
-ใช้ LANCZOS resampling สำหรับ resize ภาพก็เพราะ เวลาย่อภาพลง LANCZOS จะให้ผลลัพธ์ที่คมชัดและลด aliasing
-ได้ดีกว่า resampling methods อื่น ๆ เช่น NEAREST หรือ BILINEAR โดยเฉพาะเมื่อย่อภาพลงมาก ๆ
 
-และที่เป็นขนาดภาพ target_size = (224, 224)
-ก็เพราะว่าเป็นขนาดมาตรฐานที่ใช้ในหลาย ๆ โมเดล deep learning เช่น ResNet, VGG, MobileNet ซึ่งถูกฝึกมาให้รับภาพขนาดนี้
-"""
+#ใช้ LANCZOS resampling สำหรับ resize ภาพก็เพราะ เวลาย่อภาพลง LANCZOS จะให้ผลลัพธ์ที่คมชัดและลด aliasing
+#ได้ดีกว่า resampling methods อื่น ๆ เช่น NEAREST หรือ BILINEAR โดยเฉพาะเมื่อย่อภาพลงมาก ๆ
+
+#ละที่เป็นขนาดภาพ target_size = (224, 224)
+#ก็เพราะว่าเป็นขนาดมาตรฐานที่ใช้ในหลาย ๆ โมเดล deep learning เช่น ResNet, VGG, MobileNet ซึ่งถูกฝึกมาให้รับภาพขนาดนี้
+
 def resize_image(image: Image.Image, target_size: tuple = (224, 224),
                   keep_aspect_ratio: bool = True) -> Image.Image:
     if not keep_aspect_ratio:
@@ -137,14 +137,12 @@ IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
-"""
-normalize_pixels ทำ min-max scaling ธรรมดา (หารด้วย 255) ให้ค่าพิกเซลอยู่ในช่วง [0, 1]
-เป็นขั้นตอนพื้นฐานที่เกือบทุก pipeline ต้องทำ เพราะช่วยให้ gradient ตอนเทรนโมเดลเสถียรขึ้น
+#normalize_pixels ทำ min-max scaling ธรรมดา (หารด้วย 255) ให้ค่าพิกเซลอยู่ในช่วง [0, 1]
+#เป็นขั้นตอนพื้นฐานที่เกือบทุก pipeline ต้องทำ เพราะช่วยให้ gradient ตอนเทรนโมเดลเสถียรขึ้น
 
-standardize_pixels ทำต่ออีกขั้น ปรับให้ mean=0, std=1 ด้วยสูตร (x - mean) / std
-ใช้ค่า mean/std มาตรฐานของ ImageNet เพราะถ้าจะทำ Transfer Learning กับ pretrained model
-(ResNet, VGG ฯลฯ) ต้องปรับ input distribution ให้ตรงกับที่โมเดลเคยเห็นตอนเทรนมา
-"""
+# standardize_pixels ทำต่ออีกขั้น ปรับให้ mean=0, std=1 ด้วยสูตร (x - mean) / std
+# ใช้ค่า mean/std มาตรฐานของ ImageNet เพราะถ้าจะทำ Transfer Learning กับ pretrained model
+# (ResNet, VGG ฯลฯ) ต้องปรับ input distribution ให้ตรงกับที่โมเดลเคยเห็นตอนเทรนมา
 def normalize_pixels(image: Image.Image) -> np.ndarray:
     arr = np.array(image, dtype=np.float32)
     return arr / 255.0
@@ -188,10 +186,10 @@ def compute_dataset_mean_std(df: pd.DataFrame, sample_size: int = 1000) -> tuple
     return mean.astype(np.float32), std.astype(np.float32)
 
 
-"""
-โชว์เป็น histogram แทน imshow ตรง ๆ เพราะหลัง standardize ค่าพิกเซลจะติดลบได้ (เช่น -2 ถึง 2.5)
-ถ้า imshow ตรง ๆ matplotlib จะ clip ค่าจนภาพเพี้ยนสี ดูไม่ออกว่าการกระจายข้อมูลเปลี่ยนไปยังไง
-"""
+
+#โชว์เป็น histogram แทน imshow ตรง ๆ เพราะหลัง standardize ค่าพิกเซลจะติดลบได้ (เช่น -2 ถึง 2.5)
+#ถ้า imshow ตรง ๆ matplotlib จะ clip ค่าจนภาพเพี้ยนสี ดูไม่ออกว่าการกระจายข้อมูลเปลี่ยนไปยังไง
+
 def show_normalize_before_after(df: pd.DataFrame, method: str = "imagenet",
                                  n_samples: int = 4,
                                  save_name: str = "normalize_before_after.png"):
@@ -221,16 +219,15 @@ def show_normalize_before_after(df: pd.DataFrame, method: str = "imagenet",
     print(f"[SUCCESS] เซฟภาพเปรียบเทียบ Before/After ที่: {save_path}")
 
 
-"""
-ใช้ Median Filter เป็นค่า default สำหรับ denoise เพราะ dataset ภาพทั่วไป (โดยเฉพาะภาพถ่ายที่โหลดมาจากหลายแหล่ง)
-มักเจอ salt-and-pepper noise (จุดขาว/ดำกระจายเป็นจุด ๆ) ซึ่ง Median Filter จัดการได้ดีกว่า Gaussian Blur มาก
-เพราะมันแทนที่แต่ละพิกเซลด้วยค่ามัธยฐานของเพื่อนบ้าน ทำให้ noise หลุดออกไปโดยที่ขอบภาพ (edge) ยังคมอยู่
-ต่างจาก Gaussian Blur ที่ลด noise แบบเฉลี่ยถ่วงน้ำหนัก เลยทำให้ขอบภาพเบลอไปด้วย
+#ใช้ Median Filter เป็นค่า default สำหรับ denoise เพราะ dataset ภาพทั่วไป (โดยเฉพาะภาพถ่ายที่โหลดมาจากหลายแหล่ง)
+#มักเจอ salt-and-pepper noise (จุดขาว/ดำกระจายเป็นจุด ๆ) ซึ่ง Median Filter จัดการได้ดีกว่า Gaussian Blur มาก
+#เพราะมันแทนที่แต่ละพิกเซลด้วยค่ามัธยฐานของเพื่อนบ้าน ทำให้ noise หลุดออกไปโดยที่ขอบภาพ (edge) ยังคมอยู่
+#ต่างจาก Gaussian Blur ที่ลด noise แบบเฉลี่ยถ่วงน้ำหนัก เลยทำให้ขอบภาพเบลอไปด้วย
 
-kernel_size ต้องเป็นเลขคี่เท่านั้น (ข้อกำหนดของ PIL.ImageFilter.MedianFilter) และ default = 3
-เพราะเป็นค่าที่เบาที่สุดที่ยังลบ noise แบบจุด ๆ ได้ โดยไม่ทำให้รายละเอียดเล็ก ๆ ในภาพหายไปเยอะเกินไป
-ถ้า noise เยอะกว่านี้ค่อยขยับขึ้นเป็น 5 หรือ 7
-"""
+#kernel_size ต้องเป็นเลขคี่เท่านั้น (ข้อกำหนดของ PIL.ImageFilter.MedianFilter) และ default = 3
+#เพราะเป็นค่าที่เบาที่สุดที่ยังลบ noise แบบจุด ๆ ได้ โดยไม่ทำให้รายละเอียดเล็ก ๆ ในภาพหายไปเยอะเกินไป
+#ถ้า noise เยอะกว่านี้ค่อยขยับขึ้นเป็น 5 หรือ 7
+
 def denoise_image(image: Image.Image, method: str = "median",
                    kernel_size: int = 3) -> Image.Image:
     if kernel_size % 2 == 0:
@@ -308,26 +305,26 @@ def show_denoise_before_after(df: pd.DataFrame, method: str = "median",
     print(f"[SUCCESS] เซฟภาพเปรียบเทียบ Before/After ที่: {save_path}")
 
 
-"""
-เลือกใช้ 4 เทคนิคนี้เพราะ dataset เป็นภาพ "cat-breeds" (จำแนกสายพันธุ์แมว) โดยแต่ละเทคนิคช่วยจำลอง
-ความแปรปรวนที่พบได้จริงตอนถ่ายภาพ โดยไม่ทำให้ label (สายพันธุ์) เปลี่ยนไป:
 
-1. horizontal_flip (พลิกซ้าย-ขวา) — แมวหันซ้ายหรือขวาก็ยังเป็นสายพันธุ์เดิม ไม่มีความหมายเชิงทิศทาง
-   จึงเป็นเทคนิคที่ "ปลอดภัย" ที่สุดและได้ผลดีมากสำหรับงาน image classification ทั่วไป
-   *ไม่ใช้ vertical_flip* เพราะแมวกลับหัวไม่ใช่สิ่งที่เจอในข้อมูลจริง จะทำให้โมเดลเรียนรู้ pattern ที่ผิดธรรมชาติ
+#เลือกใช้ 4 เทคนิคนี้เพราะ dataset เป็นภาพ "cat-breeds" (จำแนกสายพันธุ์แมว) โดยแต่ละเทคนิคช่วยจำลอง
+#ความแปรปรวนที่พบได้จริงตอนถ่ายภาพ โดยไม่ทำให้ label (สายพันธุ์) เปลี่ยนไป:
 
-2. rotation (หมุนมุมเล็กน้อย ±ไม่เกิน 20 องศา) — จำลองมุมกล้องที่เอียงตอนถ่ายจริง (มือสั่น/ถ่ายไม่ตรง)
-   จำกัดองศาไม่ให้เยอะเกินไป เพราะถ้าหมุนมาก ๆ ภาพจะเสียสัดส่วนและมี padding ดำเข้ามารบกวน
+#1. horizontal_flip (พลิกซ้าย-ขวา) — แมวหันซ้ายหรือขวาก็ยังเป็นสายพันธุ์เดิม ไม่มีความหมายเชิงทิศทาง
+#   จึงเป็นเทคนิคที่ "ปลอดภัย" ที่สุดและได้ผลดีมากสำหรับงาน image classification ทั่วไป
+#  *ไม่ใช้ vertical_flip* เพราะแมวกลับหัวไม่ใช่สิ่งที่เจอในข้อมูลจริง จะทำให้โมเดลเรียนรู้ pattern ที่ผิดธรรมชาติ
 
-3. brightness/contrast adjustment — จำลองสภาพแสงที่ต่างกัน (ถ่ายในบ้าน/กลางแจ้ง/มีแฟลช)
-   เพราะแสงเป็นตัวแปรที่เปลี่ยนบ่อยที่สุดใน dataset ที่รวบรวมจากหลายแหล่ง ช่วยให้โมเดลไม่ overfit กับความสว่างเฉพาะจุด
+#2. rotation (หมุนมุมเล็กน้อย ±ไม่เกิน 20 องศา) — จำลองมุมกล้องที่เอียงตอนถ่ายจริง (มือสั่น/ถ่ายไม่ตรง)
+#   จำกัดองศาไม่ให้เยอะเกินไป เพราะถ้าหมุนมาก ๆ ภาพจะเสียสัดส่วนและมี padding ดำเข้ามารบกวน
 
-4. random_crop_zoom (crop แล้วขยายกลับ) — จำลองระยะห่างจากกล้อง/การจัดองค์ประกอบภาพที่ต่างกัน
-   บังคับให้โมเดลโฟกัสที่ลักษณะเด่นของแมว (ลาย, รูปหน้า, หู) แทนที่จะจำ background หรือตำแหน่งของวัตถุในเฟรม
+#3. brightness/contrast adjustment — จำลองสภาพแสงที่ต่างกัน (ถ่ายในบ้าน/กลางแจ้ง/มีแฟลช)
+#   เพราะแสงเป็นตัวแปรที่เปลี่ยนบ่อยที่สุดใน dataset ที่รวบรวมจากหลายแหล่ง ช่วยให้โมเดลไม่ overfit กับความสว่างเฉพาะจุด
 
-ทุกเทคนิครวมกันในฟังก์ชันเดียว (augment_image) แบบสุ่มว่าจะใช้ตัวไหนบ้าง เพื่อให้แต่ละภาพที่ออกมามีความหลากหลาย
-ไม่ใช่ apply ทุกเทคนิคพร้อมกันเสมอ ซึ่งจะทำให้ภาพเพี้ยนเกินจริงจนไม่เหมือนข้อมูลจริง
-"""
+#4. random_crop_zoom (crop แล้วขยายกลับ) — จำลองระยะห่างจากกล้อง/การจัดองค์ประกอบภาพที่ต่างกัน
+#   บังคับให้โมเดลโฟกัสที่ลักษณะเด่นของแมว (ลาย, รูปหน้า, หู) แทนที่จะจำ background หรือตำแหน่งของวัตถุในเฟรม
+
+#ทุกเทคนิครวมกันในฟังก์ชันเดียว (augment_image) แบบสุ่มว่าจะใช้ตัวไหนบ้าง เพื่อให้แต่ละภาพที่ออกมามีความหลากหลาย
+#ไม่ใช่ apply ทุกเทคนิคพร้อมกันเสมอ ซึ่งจะทำให้ภาพเพี้ยนเกินจริงจนไม่เหมือนข้อมูลจริง
+
 def augment_image(image: Image.Image,
                    techniques: tuple = ("flip", "rotate", "brightness", "crop_zoom"),
                    rotate_range: float = 20.0,
@@ -440,19 +437,19 @@ def show_augment_before_after(df: pd.DataFrame,
     print(f"[SUCCESS] เซฟภาพเปรียบเทียบ Original/Augmented ที่: {save_path}")
 
 
-"""
-เทียบจำนวนข้อมูล "ก่อน-หลัง Clean" แยกตาม category (ไม่ใช่แค่ตัวเลขรวม) เพราะ:
 
-1. ถ้าดูแค่ยอดรวม อาจพลาดปัญหา class imbalance ที่เกิดขึ้นจากการ clean เช่น
-   บาง breed อาจถูกกรองออกไปเยอะผิดปกติ (ภาพเบลอ/ไฟล์เสียเยอะ) จนเหลือข้อมูลน้อยกว่า class อื่นมาก
-   ซึ่งจะกระทบตอนเทรนโมเดลโดยตรง (โมเดลจะ bias ไปทาง class ที่มีข้อมูลเยอะกว่า)
+#เทียบจำนวนข้อมูล "ก่อน-หลัง Clean" แยกตาม category (ไม่ใช่แค่ตัวเลขรวม) เพราะ:
 
-2. removed_pct (เปอร์เซ็นต์ที่หายไป) สำคัญกว่า removed_count เฉย ๆ เพราะ breed ที่มีข้อมูลน้อยอยู่แล้ว
-   ถ้าโดน clean ออกไป 20 รูปจาก 30 รูป (66%) จะกระทบหนักกว่า breed ที่มี 500 รูปแล้วโดนออก 20 รูป (4%)
-   แม้ removed_count จะเท่ากันก็ตาม
+#1. ถ้าดูแค่ยอดรวม อาจพลาดปัญหา class imbalance ที่เกิดขึ้นจากการ clean เช่น
+#   บาง breed อาจถูกกรองออกไปเยอะผิดปกติ (ภาพเบลอ/ไฟล์เสียเยอะ) จนเหลือข้อมูลน้อยกว่า class อื่นมาก
+#   ซึ่งจะกระทบตอนเทรนโมเดลโดยตรง (โมเดลจะ bias ไปทาง class ที่มีข้อมูลเยอะกว่า)
 
-3. เก็บแถว TOTAL ไว้ด้วยเพื่อดูภาพรวมทั้ง dataset ควบคู่กับรายละเอียดแต่ละ class ในตารางเดียว
-"""
+#2. removed_pct (เปอร์เซ็นต์ที่หายไป) สำคัญกว่า removed_count เฉย ๆ เพราะ breed ที่มีข้อมูลน้อยอยู่แล้ว
+#   ถ้าโดน clean ออกไป 20 รูปจาก 30 รูป (66%) จะกระทบหนักกว่า breed ที่มี 500 รูปแล้วโดนออก 20 รูป (4%)
+#   แม้ removed_count จะเท่ากันก็ตาม
+
+#3. เก็บแถว TOTAL ไว้ด้วยเพื่อดูภาพรวมทั้ง dataset ควบคู่กับรายละเอียดแต่ละ class ในตารางเดียว
+
 def summarize_clean_counts(raw_dir: str, cleaned_dir: str) -> pd.DataFrame:
     raw_df = load_images_from_folder(raw_dir)
     cleaned_df = load_images_from_folder(cleaned_dir)
