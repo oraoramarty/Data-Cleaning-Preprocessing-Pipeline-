@@ -4,6 +4,7 @@ import hashlib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from pathlib import Path
 import seaborn as sns
 from PIL import Image
 import sys
@@ -15,9 +16,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.data_collection import load_dataset
 
-plt.style.use('ggplot')
-FIGURES_DIR = os.path.join("reports", "figures")
-os.makedirs(FIGURES_DIR, exist_ok=True)
+BASE_DIR = Path(__file__).resolve().parent.parent
+FIGURES_DIR = BASE_DIR / "reports" / "figures"
+FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
 def calculate_image_hash(image_path):
     hasher = hashlib.md5()
