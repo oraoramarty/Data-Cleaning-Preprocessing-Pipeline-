@@ -369,7 +369,7 @@ def standardize_dataset(
         raise FileNotFoundError(f"ไม่พบโฟลเดอร์: {input_dir}")
 
     target_ext = {"JPEG": ".jpg", "PNG": ".png"}.get(target_format.upper(), ".jpg")
-
+    
     result = {"converted": [], "failed": [], "skipped": []}
 
     for root, _, files in os.walk(input_dir):
