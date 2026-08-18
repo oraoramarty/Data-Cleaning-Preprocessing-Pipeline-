@@ -7,6 +7,25 @@ from PIL import Image
 FIGURES_DIR = os.path.join("reports", "figures")
 os.makedirs(FIGURES_DIR, exist_ok=True)
 
+VALID_EXT = (".jpg", ".jpeg", ".png")
+
+
+def load_images_from_folder(input_dir: str) -> pd.DataFrame:
+    if not os.path.isdir(input_dir):
+        raise FileNotFoundError(f"ไม่พบโฟลเดอร์: {input_dir}")
+
+    records = []
+    for root, _, files in os.walk(input_dir):
+        for fname in files:
+            if fname.lower().endswith(VALID_EXT):
+                file_path = os.path.join(root, fname)
+                category = os.path.basename(root)
+                records.append({'file_path': file_path, 'category': category})
+
+    df = pd.DataFrame(records)
+    print(f"[INFO] โหลดภาพจาก {input_dir} ได้ {len(df)} รูป, {df['category'].nunique()} class")
+    return df
+
 
 def suggest_target_size(df_stats: pd.DataFrame) -> tuple:
     median_w = int(df_stats['width'].median())
@@ -19,6 +38,13 @@ def suggest_target_size(df_stats: pd.DataFrame) -> tuple:
     return (median_w, median_h)
 
 
+"""
+ใช้ LANCZOS resampling สำหรับ resize ภาพก็เพราะ เวลาย่อภาพลง LANCZOS จะให้ผลลัพธ์ที่คมชัดและลด aliasing
+ได้ดีกว่า resampling methods อื่น ๆ เช่น NEAREST หรือ BILINEAR โดยเฉพาะเมื่อย่อภาพลงมาก ๆ
+
+และที่เป็นขนาดภาพ target_size = (224, 224)
+ก็เพราะว่าเป็นขนาดมาตรฐานที่ใช้ในหลาย ๆ โมเดล deep learning เช่น ResNet, VGG, MobileNet ซึ่งถูกฝึกมาให้รับภาพขนาดนี้
+"""
 def resize_image(image: Image.Image, target_size: tuple = (224, 224),
                   keep_aspect_ratio: bool = True) -> Image.Image:
     if not keep_aspect_ratio:
@@ -106,5 +132,109 @@ def show_resize_before_after(df: pd.DataFrame, target_size: tuple = (224, 224),
     print(f"[SUCCESS] เซฟภาพเปรียบเทียบ Before/After ที่: {save_path}")
 
 
+IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+
+"""
+normalize_pixels ทำ min-max scaling ธรรมดา (หารด้วย 255) ให้ค่าพิกเซลอยู่ในช่วง [0, 1]
+เป็นขั้นตอนพื้นฐานที่เกือบทุก pipeline ต้องทำ เพราะช่วยให้ gradient ตอนเทรนโมเดลเสถียรขึ้น
+
+standardize_pixels ทำต่ออีกขั้น ปรับให้ mean=0, std=1 ด้วยสูตร (x - mean) / std
+ใช้ค่า mean/std มาตรฐานของ ImageNet เพราะถ้าจะทำ Transfer Learning กับ pretrained model
+(ResNet, VGG ฯลฯ) ต้องปรับ input distribution ให้ตรงกับที่โมเดลเคยเห็นตอนเทรนมา
+"""
+def normalize_pixels(image: Image.Image) -> np.ndarray:
+    arr = np.array(image, dtype=np.float32)
+    return arr / 255.0
+
+
+def standardize_pixels(image: Image.Image, method: str = "imagenet") -> np.ndarray:
+    arr = normalize_pixels(image)
+
+    if method == "imagenet":
+        mean, std = IMAGENET_MEAN, IMAGENET_STD
+    elif method == "dataset":
+        raise ValueError(
+            "method='dataset' ต้องส่ง mean/std ที่คำนวณเองเข้ามาโดยตรง "
+            "ใช้ compute_dataset_mean_std() หาค่าก่อน แล้วคำนวณ (arr - mean) / std เอง"
+        )
+    else:
+        raise ValueError(f"method ต้องเป็น 'imagenet' หรือ 'dataset' เท่านั้น (ได้รับ: {method})")
+
+    return (arr - mean) / std
+
+
+def compute_dataset_mean_std(df: pd.DataFrame, sample_size: int = 1000) -> tuple:
+    sample_df = df.sample(min(sample_size, len(df)))
+
+    pixel_sum = np.zeros(3, dtype=np.float64)
+    pixel_sq_sum = np.zeros(3, dtype=np.float64)
+    pixel_count = 0
+
+    for _, row in sample_df.iterrows():
+        with Image.open(row['file_path']) as img:
+            arr = np.array(img.convert('RGB'), dtype=np.float64) / 255.0
+            pixel_sum += arr.sum(axis=(0, 1))
+            pixel_sq_sum += (arr ** 2).sum(axis=(0, 1))
+            pixel_count += arr.shape[0] * arr.shape[1]
+
+    mean = pixel_sum / pixel_count
+    std = np.sqrt(pixel_sq_sum / pixel_count - mean ** 2)
+
+    print(f"[INFO] Dataset mean (RGB): {mean}")
+    print(f"[INFO] Dataset std  (RGB): {std}")
+    return mean.astype(np.float32), std.astype(np.float32)
+
+
+"""
+โชว์เป็น histogram แทน imshow ตรง ๆ เพราะหลัง standardize ค่าพิกเซลจะติดลบได้ (เช่น -2 ถึง 2.5)
+ถ้า imshow ตรง ๆ matplotlib จะ clip ค่าจนภาพเพี้ยนสี ดูไม่ออกว่าการกระจายข้อมูลเปลี่ยนไปยังไง
+"""
+def show_normalize_before_after(df: pd.DataFrame, method: str = "imagenet",
+                                 n_samples: int = 4,
+                                 save_name: str = "normalize_before_after.png"):
+    samples = df.sample(min(n_samples, len(df)))
+
+    fig, axes = plt.subplots(2, len(samples), figsize=(4 * len(samples), 8))
+    if len(samples) == 1:
+        axes = axes.reshape(2, 1)
+
+    for i, (_, row) in enumerate(samples.iterrows()):
+        with Image.open(row['file_path']) as img:
+            img = img.convert('RGB')
+            raw_arr = np.array(img)
+            processed_arr = standardize_pixels(img, method=method)
+
+            axes[0, i].hist(raw_arr.ravel(), bins=50, color='steelblue')
+            axes[0, i].set_title(f"Before\nrange [{raw_arr.min()}, {raw_arr.max()}]")
+
+            axes[1, i].hist(processed_arr.ravel(), bins=50, color='orange')
+            axes[1, i].set_title(f"After\nrange [{processed_arr.min():.2f}, {processed_arr.max():.2f}]")
+
+    plt.suptitle(f"Pixel Distribution: Before vs After ({method} standardize)")
+    plt.tight_layout()
+    save_path = os.path.join(FIGURES_DIR, save_name)
+    plt.savefig(save_path)
+    plt.close()
+    print(f"[SUCCESS] เซฟภาพเปรียบเทียบ Before/After ที่: {save_path}")
+
+
 if __name__ == "__main__":
-    pass
+    import sys
+
+    INPUT_DIR = sys.argv[1] if len(sys.argv) > 1 else "data/cleaned/cat-breeds"
+    RESIZED_DIR = "data/resized"
+    TARGET_SIZE = (224, 224)
+
+    df = load_images_from_folder(INPUT_DIR)
+
+    if len(df) == 0:
+        print(f"[ERROR] ไม่พบไฟล์ภาพใน {INPUT_DIR}")
+        sys.exit(1)
+
+    resized_df = resize_dataset(df, RESIZED_DIR, target_size=TARGET_SIZE)
+    show_resize_before_after(df, target_size=TARGET_SIZE)
+
+    mean, std = compute_dataset_mean_std(resized_df)
+    show_normalize_before_after(resized_df, method="imagenet")
