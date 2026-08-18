@@ -2,3 +2,4 @@ src/raw/
 data_collection.py
 reports/
 data/
+src/__pycache__/
