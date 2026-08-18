@@ -1,3 +1,4 @@
+import kagglehub
 import os
 import shutil
 import random
@@ -11,14 +12,13 @@ VALID_EXT = (".jpg", ".jpeg", ".png")
 # ฟีเจอร์ 0: หา path ของ dataset ใน Kaggle cache อัตโนมัติ
 # =========================================================================
 def find_kaggle_cache_path(dataset_handle="nikolasgegenava/cat-breeds"):
-    """
-    เรียก kagglehub เพื่อหา path ของ dataset ใน cache
-    ถ้าเคยโหลดแล้ว kagglehub จะคืน path เดิมจาก cache ทันที (ไม่โหลดซ้ำ)
-    ถ้ายังไม่เคยโหลด จะดาวน์โหลดให้อัตโนมัติ
+    #เรียก kagglehub เพื่อหา path ของ dataset ใน cache
+    #ถ้าเคยโหลดแล้ว kagglehub จะคืน path เดิมจาก cache ทันที (ไม่โหลดซ้ำ)
+    #ถ้ายังไม่เคยโหลด จะดาวน์โหลดให้อัตโนมัติ
 
-    คืนค่า: path (str) ของโฟลเดอร์ dataset ใน cache
-    """
-    import kagglehub  # import ในฟังก์ชันเพื่อไม่บังคับให้ต้องลงไลบรารีนี้ถ้าไม่ได้ใช้ฟังก์ชันนี้
+    #คืนค่า: path (str) ของโฟลเดอร์ dataset ใน cache
+    
+    #import kagglehub  # import ในฟังก์ชันเพื่อไม่บังคับให้ต้องลงไลบรารีนี้ถ้าไม่ได้ใช้ฟังก์ชันนี้
 
     print(f"[Kaggle Cache] กำลังเช็ค/ดึง dataset: {dataset_handle}")
     dataset_path = kagglehub.dataset_download(dataset_handle)
@@ -36,16 +36,15 @@ def find_kaggle_cache_path(dataset_handle="nikolasgegenava/cat-breeds"):
 # เหตุผล: raw data ต้องเก็บไว้ครบสำหรับให้ EDA (คนที่ 2) เทียบ
 # before/after ได้ และไม่ต้องดาวน์โหลด dataset ใหม่ทุกครั้งที่ต้องการรีเซ็ต
 def copy_valid_images(input_dir, output_dir):
-    """
-    Copy ไฟล์ภาพทั้งหมดจาก input_dir (raw data) ไปยัง output_dir
-    โดยรักษาโครงสร้าง subfolder เดิมไว้ (เช่น แยกตาม class)
 
-    เรียกฟังก์ชันนี้เป็นขั้นตอนแรกสุด ก่อน remove_corrupted_images และ
-    remove_duplicate_images เสมอ เพื่อให้ทุกการลบไฟล์เกิดขึ้นบน output_dir
-    (โฟลเดอร์ทำงาน) เท่านั้น ไม่ใช่บน raw dataset ต้นฉบับ
+    #Copy ไฟล์ภาพทั้งหมดจาก input_dir (raw data) ไปยัง output_dir
+    #โดยรักษาโครงสร้าง subfolder เดิมไว้ (เช่น แยกตาม class)
 
-    คืนค่า: จำนวนไฟล์ที่ copy สำเร็จ
-    """
+    #เรียกฟังก์ชันนี้เป็นขั้นตอนแรกสุด ก่อน remove_corrupted_images และ
+    #remove_duplicate_images เสมอ เพื่อให้ทุกการลบไฟล์เกิดขึ้นบน output_dir
+    #(โฟลเดอร์ทำงาน) เท่านั้น ไม่ใช่บน raw dataset ต้นฉบับ
+
+    #คืนค่า: จำนวนไฟล์ที่ copy สำเร็จ
     if not os.path.isdir(input_dir):
         raise FileNotFoundError(f"ไม่พบโฟลเดอร์: {input_dir}")
 
@@ -75,11 +74,11 @@ def copy_valid_images(input_dir, output_dir):
 # ฟีเจอร์ 1: ลบไฟล์ที่เสียหายหรือใช้งานไม่ได้ (Corrupted Images)
 # =========================================================================
 def is_corrupted(filepath):
-    """
-    เช็คว่าไฟล์ภาพเปิดได้จริงหรือไม่
-    ใช้ img.verify() เพื่อตรวจสอบโครงสร้างไฟล์ (ไม่ได้โหลดข้อมูลภาพทั้งหมดเข้า memory)
-    คืนค่า True ถ้าไฟล์เสีย, False ถ้าไฟล์ปกติ
-    """
+    
+    #เช็คว่าไฟล์ภาพเปิดได้จริงหรือไม่
+    #ใช้ img.verify() เพื่อตรวจสอบโครงสร้างไฟล์ (ไม่ได้โหลดข้อมูลภาพทั้งหมดเข้า memory)
+    #คืนค่า True ถ้าไฟล์เสีย, False ถ้าไฟล์ปกติ
+    
     try:
         with Image.open(filepath) as img:
             img.verify()
@@ -89,17 +88,16 @@ def is_corrupted(filepath):
 
 
 def remove_corrupted_images(input_dir, dry_run=False):
-    """
-    สแกนทุกไฟล์ภาพใน input_dir (รวม subfolder) หาไฟล์ที่เสีย
+    #สแกนทุกไฟล์ภาพใน input_dir (รวม subfolder) หาไฟล์ที่เสีย
 
-    !! ต้องเรียกด้วย OUTPUT_DIR (โฟลเดอร์ copy) เท่านั้น ห้ามเรียกด้วย
-    TEST_DIR (raw cache) ตรง ๆ เพราะฟังก์ชันนี้ลบไฟล์จริงถ้า dry_run=False
+    #ต้องเรียกด้วย OUTPUT_DIR (โฟลเดอร์ copy) เท่านั้น ห้ามเรียกด้วย
+    #TEST_DIR (raw cache) ตรง ๆ เพราะฟังก์ชันนี้ลบไฟล์จริงถ้า dry_run=False
 
-    dry_run=True  -> แค่รายงานว่าจะลบอะไรบ้าง ไม่ลบจริง (ใช้เช็คก่อนได้)
-    dry_run=False -> ลบไฟล์เสียจริง
+    #dry_run=True  -> แค่รายงานว่าจะลบอะไรบ้าง ไม่ลบจริง (ใช้เช็คก่อนได้)
+    #dry_run=False -> ลบไฟล์เสียจริง
 
-    คืนค่า list ของ path ไฟล์ที่เสีย (หรือถูกลบไปแล้ว)
-    """
+    #คืนค่า list ของ path ไฟล์ที่เสีย (หรือถูกลบไปแล้ว)
+    
     if not os.path.isdir(input_dir):
         raise FileNotFoundError(f"ไม่พบโฟลเดอร์: {input_dir}")
 
@@ -125,15 +123,15 @@ def remove_corrupted_images(input_dir, dry_run=False):
 # ฟีเจอร์ 2: ตรวจจับและจัดการรูปภาพซ้ำ (Duplicate Detection)
 # =========================================================================
 def find_duplicate_images(input_dir, hash_size=8):
-    """
-    ใช้ Perceptual Hash (phash) หารูปที่ "หน้าตาเหมือนกัน" แม้ชื่อไฟล์ต่างกัน
-    หรือถูก resize/บีบอัดมาต่างกันเล็กน้อย (ต่างจากการเทียบไฟล์แบบ byte-to-byte)
+    
+    #ใช้ Perceptual Hash (phash) หารูปที่ "หน้าตาเหมือนกัน" แม้ชื่อไฟล์ต่างกัน
+    #หรือถูก resize/บีบอัดมาต่างกันเล็กน้อย (ต่างจากการเทียบไฟล์แบบ byte-to-byte)
 
-    !! ต้องเรียกด้วย OUTPUT_DIR (โฟลเดอร์ copy) เท่านั้น เช่นเดียวกับ
-    remove_corrupted_images
+    #!! ต้องเรียกด้วย OUTPUT_DIR (โฟลเดอร์ copy) เท่านั้น เช่นเดียวกับ
+    #remove_corrupted_images
 
-    คืนค่า dict {hash: [path1, path2, ...]} เฉพาะกลุ่มที่มีมากกว่า 1 ไฟล์ (ซ้ำกัน)
-    """
+    #คืนค่า dict {hash: [path1, path2, ...]} เฉพาะกลุ่มที่มีมากกว่า 1 ไฟล์ (ซ้ำกัน)
+
     if not os.path.isdir(input_dir):
         raise FileNotFoundError(f"ไม่พบโฟลเดอร์: {input_dir}")
 
@@ -160,13 +158,12 @@ def find_duplicate_images(input_dir, hash_size=8):
 
 
 def remove_duplicate_images(duplicates, dry_run=False):
-    """
-    รับผลลัพธ์จาก find_duplicate_images() มาลบไฟล์ซ้ำออก
-    เก็บไฟล์แรก [0] ของแต่ละกลุ่มไว้เป็นตัวแทน ลบไฟล์ที่เหลือ
+    
+    #รับผลลัพธ์จาก find_duplicate_images() มาลบไฟล์ซ้ำออก
+    #เก็บไฟล์แรก [0] ของแต่ละกลุ่มไว้เป็นตัวแทน ลบไฟล์ที่เหลือ
 
-    dry_run=True  -> รายงานว่าจะลบอะไรบ้าง ไม่ลบจริง
-    dry_run=False -> ลบไฟล์ซ้ำจริง
-    """
+    #dry_run=True  -> รายงานว่าจะลบอะไรบ้าง ไม่ลบจริง
+    #dry_run=False -> ลบไฟล์ซ้ำจริง
     removed = []
     for _, paths in duplicates.items():
         for p in paths[1:]:  # เก็บไฟล์แรกไว้ ลบที่เหลือ
@@ -184,17 +181,17 @@ def remove_duplicate_images(duplicates, dry_run=False):
 # ฟีเจอร์ 4: จัดการ Class Imbalance
 # =========================================================================
 def find_class_folders(input_dir):
-    """
-    หาโฟลเดอร์ที่เป็น "class จริง" แบบ recursive (เหมือนวิธีที่ eda.py ใช้)
+    
+    #หาโฟลเดอร์ที่เป็น "class จริง" แบบ recursive (เหมือนวิธีที่ eda.py ใช้)
 
-    นิยาม class = โฟลเดอร์ leaf ที่มีไฟล์ภาพอยู่ข้างในโดยตรง
-    (ไม่ใช่แค่ subfolder ชั้นแรกของ input_dir อย่างเดียว) เพราะ dataset นี้
-    มีโฟลเดอร์ wrapper ซ้อนอยู่อีกชั้นก่อนถึงโฟลเดอร์ breed จริง
-    เช่น data/cleaned/cat-breeds/persian/*.jpg
-                      ^^^^^^^^^^ wrapper   ^^^^^^^ class จริง
+    #นิยาม class = โฟลเดอร์ leaf ที่มีไฟล์ภาพอยู่ข้างในโดยตรง
+    #(ไม่ใช่แค่ subfolder ชั้นแรกของ input_dir อย่างเดียว) เพราะ dataset นี้
+    #มีโฟลเดอร์ wrapper ซ้อนอยู่อีกชั้นก่อนถึงโฟลเดอร์ breed จริง
+    #เช่น data/cleaned/cat-breeds/persian/*.jpg
+    #                  ^^^^^^^^^^ wrapper   ^^^^^^^ class จริง
 
-    คืนค่า dict {class_name: folder_path}
-    """
+    #คืนค่า dict {class_name: folder_path}
+    
     if not os.path.isdir(input_dir):
         raise FileNotFoundError(f"ไม่พบโฟลเดอร์: {input_dir}")
 
@@ -212,9 +209,9 @@ def find_class_folders(input_dir):
 
 
 def check_class_distribution(input_dir):
-    """
-    นับจำนวนรูปในแต่ละ class (หา class folder แบบ recursive ด้วย find_class_folders)
-    """
+    
+    #นับจำนวนรูปในแต่ละ class (หา class folder แบบ recursive ด้วย find_class_folders)
+
     class_dirs = find_class_folders(input_dir)
 
     distribution = {}
@@ -230,17 +227,17 @@ def check_class_distribution(input_dir):
 
 
 def oversample_class(class_dir, target_count, dry_run=False):
-    """
-    เพิ่มไฟล์ใน class_dir ให้ครบ target_count โดย copy ไฟล์เดิมซ้ำแบบสุ่ม
-    (ไม่ได้สร้างภาพใหม่ แค่ duplicate ไฟล์ที่มีอยู่ เพื่อให้จำนวนเท่ากันทุก class)
 
-    วิธีอื่นที่เลือกใช้แทนได้ (แล้วแต่ความเหมาะสมของ dataset):
-      - Undersampling: ตัดไฟล์ class ที่เยอะเกินให้เหลือเท่า class ที่น้อยที่สุด
-      - Weighted Sampling: ไม่ต้องเพิ่ม/ลดไฟล์จริง แต่ปรับ weight ตอน train แทน
+    #เพิ่มไฟล์ใน class_dir ให้ครบ target_count โดย copy ไฟล์เดิมซ้ำแบบสุ่ม
+    #(ไม่ได้สร้างภาพใหม่ แค่ duplicate ไฟล์ที่มีอยู่ เพื่อให้จำนวนเท่ากันทุก class)
 
-    dry_run=True  -> รายงานว่าจะเพิ่มกี่ไฟล์ ไม่ copy จริง
-    dry_run=False -> copy ไฟล์ซ้ำจริง
-    """
+    #วิธีอื่นที่เลือกใช้แทนได้ (แล้วแต่ความเหมาะสมของ dataset):
+    # - Undersampling: ตัดไฟล์ class ที่เยอะเกินให้เหลือเท่า class ที่น้อยที่สุด
+    # - Weighted Sampling: ไม่ต้องเพิ่ม/ลดไฟล์จริง แต่ปรับ weight ตอน train แทน
+
+    #dry_run=True  -> รายงานว่าจะเพิ่มกี่ไฟล์ ไม่ copy จริง
+    #dry_run=False -> copy ไฟล์ซ้ำจริง
+
     files = [f for f in os.listdir(class_dir) if f.lower().endswith(VALID_EXT)]
     current_count = len(files)
 
@@ -266,10 +263,9 @@ def oversample_class(class_dir, target_count, dry_run=False):
 
 
 def balance_classes(input_dir, dry_run=False):
-    """
-    เช็ค class distribution แล้ว oversample ทุก class ที่มีไฟล์น้อยกว่า
-    ให้เท่ากับ class ที่มีไฟล์เยอะที่สุด
-    """
+    #เช็ค class distribution แล้ว oversample ทุก class ที่มีไฟล์น้อยกว่า
+    #ให้เท่ากับ class ที่มีไฟล์เยอะที่สุด
+
     class_dirs = find_class_folders(input_dir)
     if not class_dirs:
         print("[Balance Classes] ไม่พบ class ใดเลยใน", input_dir)
@@ -295,22 +291,22 @@ def standardize_image(
     target_mode="RGB",
     quality=95,
 ):
-    """
-    เปิดไฟล์ภาพ 1 ไฟล์ แล้วแปลงให้เป็นมาตรฐานเดียวกัน:
-      1. Color Space -> target_mode (ค่าเริ่มต้น "RGB")
-         รองรับกรณีภาพเป็น Grayscale (L), มี Alpha channel (RGBA/LA/P), หรือ CMYK
-      2. Format -> target_format (ค่าเริ่มต้น "JPEG")
-         เช่นถ้า dataset ปนกันทั้ง .jpg/.jpeg/.png ให้แปลงเป็น .jpg ทั้งหมด
+    
+    #เปิดไฟล์ภาพ 1 ไฟล์ แล้วแปลงให้เป็นมาตรฐานเดียวกัน:
+      #1. Color Space -> target_mode (ค่าเริ่มต้น "RGB")
+      #รองรับกรณีภาพเป็น Grayscale (L), มี Alpha channel (RGBA/LA/P), หรือ CMYK
+      #2. Format -> target_format (ค่าเริ่มต้น "JPEG")
+      #เช่นถ้า dataset ปนกันทั้ง .jpg/.jpeg/.png ให้แปลงเป็น .jpg ทั้งหมด
 
-    filepath     : path ไฟล์ภาพต้นฉบับ
-    output_path  : path ปลายทาง ถ้าไม่ระบุ (None) จะ overwrite ไฟล์เดิม
-                   (เปลี่ยนนามสกุลไฟล์ให้ตรงกับ target_format อัตโนมัติ)
-    target_format: "JPEG" หรือ "PNG" (ตาม Pillow format name)
-    target_mode  : "RGB" (ค่ามาตรฐานสำหรับ dataset ทั่วไป) หรือ mode อื่นของ Pillow
-    quality      : คุณภาพตอน save (ใช้เฉพาะกรณี JPEG, ช่วง 1-95)
+    #filepath     : path ไฟล์ภาพต้นฉบับ
+    #output_path  : path ปลายทาง ถ้าไม่ระบุ (None) จะ overwrite ไฟล์เดิม
+    #               (เปลี่ยนนามสกุลไฟล์ให้ตรงกับ target_format อัตโนมัติ)
+    #target_format: "JPEG" หรือ "PNG" (ตาม Pillow format name)
+    #target_mode  : "RGB" (ค่ามาตรฐานสำหรับ dataset ทั่วไป) หรือ mode อื่นของ Pillow
+    #quality      : คุณภาพตอน save (ใช้เฉพาะกรณี JPEG, ช่วง 1-95)
 
-    คืนค่า: path ของไฟล์ผลลัพธ์ที่ save ไปแล้ว หรือ None ถ้าแปลงไม่สำเร็จ
-    """
+    #คืนค่า: path ของไฟล์ผลลัพธ์ที่ save ไปแล้ว หรือ None ถ้าแปลงไม่สำเร็จ
+
     ext_map = {"JPEG": ".jpg", "PNG": ".png"}
     target_ext = ext_map.get(target_format.upper(), ".jpg")
 
@@ -358,18 +354,17 @@ def standardize_dataset(
     quality=95,
     dry_run=False,
 ):
-    """
-    สแกนทุกไฟล์ภาพใน input_dir (รวม subfolder) แล้วแปลง format + color space
-    ให้เป็นมาตรฐานเดียวกันทั้ง dataset (เรียกใช้ standardize_image ทีละไฟล์)
+    #สแกนทุกไฟล์ภาพใน input_dir (รวม subfolder) แล้วแปลง format + color space
+    #ให้เป็นมาตรฐานเดียวกันทั้ง dataset (เรียกใช้ standardize_image ทีละไฟล์)
 
-    ถ้าไฟล์ต้นฉบับมีนามสกุลไม่ตรงกับ target_format (เช่นเดิมเป็น .png แต่แปลงเป็น .jpg)
-    จะ save ไฟล์ใหม่แล้วลบไฟล์เดิมทิ้ง เพื่อไม่ให้เหลือไฟล์ซ้ำซ้อนสองสกุล
+    #ถ้าไฟล์ต้นฉบับมีนามสกุลไม่ตรงกับ target_format (เช่นเดิมเป็น .png แต่แปลงเป็น .jpg)
+    #จะ save ไฟล์ใหม่แล้วลบไฟล์เดิมทิ้ง เพื่อไม่ให้เหลือไฟล์ซ้ำซ้อนสองสกุล
 
-    dry_run=True  -> แค่รายงานว่าจะแปลงไฟล์ไหนบ้าง (บอก mode เดิม) ไม่แปลงจริง
-    dry_run=False -> แปลงไฟล์จริงทั้งหมด
+    #dry_run=True  -> แค่รายงานว่าจะแปลงไฟล์ไหนบ้าง (บอก mode เดิม) ไม่แปลงจริง
+    #dry_run=False -> แปลงไฟล์จริงทั้งหมด
 
-    คืนค่า: dict สรุปผล {"converted": [...], "failed": [...], "skipped": [...]}
-    """
+    #คืนค่า: dict สรุปผล {"converted": [...], "failed": [...], "skipped": [...]}
+    
     if not os.path.isdir(input_dir):
         raise FileNotFoundError(f"ไม่พบโฟลเดอร์: {input_dir}")
 
