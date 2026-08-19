@@ -129,16 +129,26 @@ def stratified_group_split(
         random_state=seed,
     )
 
-    group_to_split = {}
-    for gid in train_groups["group_id"]:
-        group_to_split[gid] = "train"
-    for gid in val_groups["group_id"]:
-        group_to_split[gid] = "val"
-    for gid in test_groups["group_id"]:
-        group_to_split[gid] = "test"
+    # สำคัญ: ต้อง key ด้วย (category, group_id) คู่กันเสมอ ห้าม key ด้วย
+    # group_id เดี่ยว ๆ เพราะชื่อไฟล์ (เช่น "0001.jpg") ซ้ำกันได้ข้าม category
+    # (ทุก breed เริ่มนับเลขไฟล์ใหม่จาก 0001) ถ้า key เดี่ยว ๆ จะเกิดการ
+    # เขียนทับข้าม category กลายเป็น Data ทั้งหมดไหลไปกอง split เดียว
+    train_groups = train_groups.assign(split="train")
+    val_groups = val_groups.assign(split="val")
+    test_groups = test_groups.assign(split="test")
+    split_lookup = pd.concat(
+        [train_groups, val_groups, test_groups]
+    )[["category", "group_id", "split"]]
 
-    # map กลับไปยังทุกไฟล์ (ไฟล์ในกลุ่มเดียวกันได้ split เดียวกันเสมอ)
-    df["split"] = df["group_id"].map(group_to_split)
+    # map กลับไปยังทุกไฟล์ ด้วย merge บน (category, group_id) คู่กัน
+    df = df.merge(split_lookup, on=["category", "group_id"], how="left")
+
+    if df["split"].isna().any():
+        missing = df[df["split"].isna()]
+        raise AssertionError(
+            f"[BUG] มี {len(missing)} ไฟล์ที่ไม่ถูก map เข้า split ใด ๆ เลย "
+            f"กรุณาตรวจสอบ group_id/category ให้ตรงกัน"
+        )
 
     n_groups = len(group_df)
     print(f"[INFO] จำนวนภาพต้นฉบับ (groups) ทั้งหมด: {n_groups}")
@@ -152,7 +162,11 @@ def stratified_group_split(
 # 4. ตรวจสอบว่าไม่มี group_id ใดหลุดข้าม split (sanity check ป้องกัน leakage)
 # =========================================================================
 def assert_no_leakage(df: pd.DataFrame):
-    leak = df.groupby("group_id")["split"].nunique()
+    # ต้องเช็คด้วยคู่ (category, group_id) เสมอ ห้ามเช็คด้วย group_id เดี่ยว ๆ
+    # เพราะไฟล์ชื่อเดียวกัน (เช่น "0001.jpg") จากคนละ breed ไปอยู่คนละ split
+    # ได้ตามปกติ นั่นไม่ใช่ leakage — leakage จริงต้องเป็นไฟล์จาก "ภาพต้นฉบับ
+    # เดียวกันในหมวดเดียวกัน" เท่านั้นที่ห้ามกระจายข้าม split
+    leak = df.groupby(["category", "group_id"])["split"].nunique()
     leaked_groups = leak[leak > 1]
     if len(leaked_groups) > 0:
         raise AssertionError(
